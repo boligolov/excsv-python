@@ -1,0 +1,12 @@
+.idea
+.venv
+__pycache__/
+*.pyc
+*.egg-info/
+dist/
+build/
+.pytest_cache/
+docs/downloaded
+test/fixtures
+.coverage
+htmlcov/

@@ -1,0 +1,36 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "excsv"
+version = "0.1.0"
+description = "Python reference implementation of ExCSV (Extended CSV) v0.5 -- CSV that describes itself"
+readme = "README.md"
+license = "MIT"
+requires-python = ">=3.10"
+authors = [{ name = "Alex" }]
+keywords = ["csv", "excsv", "data-format", "parser"]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3",
+    "Topic :: Software Development :: Libraries :: Python Modules",
+    "Topic :: Text Processing",
+]
+dependencies = []
+
+[project.optional-dependencies]
+crypto = ["pyzipper>=0.3"]
+dev = ["pytest>=7", "pyyaml>=6"]
+
+[project.urls]
+Homepage = "https://excsv.org"
+Specification = "https://github.com/boligolov/excsv"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/excsv"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
