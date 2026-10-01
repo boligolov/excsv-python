@@ -8,8 +8,8 @@ def parse_doc(src: str) -> excsv.Document:
 
 
 def test_add_and_drop_table():
-    doc1 = parse_doc("#!excsv version=0.5\n#column name=id type=int\nid\n1\n2\n")
-    doc2 = parse_doc("#!excsv version=0.5\n#column name=name type=string\nname\na\nb\nc\n")
+    doc1 = parse_doc("#!excsv version=0.5 rows=2\n#column name=id type=int\nid\n1\n2\n")
+    doc2 = parse_doc("#!excsv version=0.5 rows=3\n#column name=name type=string\nname\na\nb\nc\n")
 
     pack = excsv.pack_from_document(doc1, "orders")
     assert pack.manifest.header.fields.get("single-table") == "orders"

@@ -25,6 +25,16 @@ _IDS = _fixture_ids()
 
 
 @pytest.mark.skipif(not MANIFEST_PATH.exists(), reason="fixtures.yaml not synced -- run scripts/sync_upstream.py")
+def test_error_registry_matches_manifest() -> None:
+    """Every code in the manifest's error_kinds (which MUST match the spec's
+    error-handling.md) is an ErrorKind member."""
+    manifest = load_manifest(MANIFEST_PATH)
+    known = {k.value for k in excsv.ErrorKind}
+    missing = sorted(set(manifest["error_kinds"]) - known)
+    assert not missing, f"ErrorKind lacks spec codes: {missing}"
+
+
+@pytest.mark.skipif(not MANIFEST_PATH.exists(), reason="fixtures.yaml not synced -- run scripts/sync_upstream.py")
 @pytest.mark.parametrize("fixture_id", _IDS)
 def test_manifest_fixture(fixture_id: str) -> None:
     fx = _fixtures_by_id()[fixture_id]

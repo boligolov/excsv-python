@@ -1,8 +1,15 @@
 # excsv-python
 
+[![CI](https://github.com/boligolov/excsv-python/actions/workflows/ci.yml/badge.svg)](https://github.com/boligolov/excsv-python/actions/workflows/ci.yml)
+[![ExCSV spec](https://img.shields.io/badge/ExCSV-v0.6-blue)](https://github.com/boligolov/excsv)
+[![Python](https://img.shields.io/badge/python-3.10%2B-blue)](pyproject.toml)
+[![License: MIT](https://img.shields.io/badge/license-MIT-green)](LICENSE)
+
 **Website:** [excsv.org](https://excsv.org)
 
-Python reference implementation of the **excsv** library for [ExCSV](https://github.com/boligolov/excsv) v0.5 (Extended CSV) -- CSV that describes itself. A conforming document is still plain, delimiter-separated data; schema, units, summary statistics, SQL DDL/DQL, and an integrity checksum ride along as `#` comment lines that any existing CSV reader already skips.
+Python reference implementation of the **excsv** library for [ExCSV](https://github.com/boligolov/excsv) v0.6 (Extended CSV) -- CSV that describes itself. A conforming document is still plain, delimiter-separated data; schema, units, summary statistics, SQL DDL/DQL, chart suggestions, notes, links, and an integrity checksum ride along as `#` comment lines that any existing CSV reader already skips.
+
+> **Versioning.** The package version follows the spec: `0.6.x` implements ExCSV v0.6, the last digit counts library releases against it.
 
 > **Alpha.** Pre-1.0 and may change without notice. Pin a version in `pyproject.toml`/`requirements.txt` and check release notes before upgrading.
 
@@ -12,13 +19,18 @@ Supports **plain** (`.excsv`, `.ecsv`, `.extsv` sidecars), **JSON** (`.excsv.jso
 
 ## Install
 
+From a checkout:
+
 ```bash
 pip install -e .            # core library, stdlib only
 pip install -e ".[crypto]"  # + AES-256 zip password support (pyzipper)
-pip install -e ".[dev]"     # + pytest, PyYAML for running the test suite
+pip install -e ".[test]"    # + pytest, PyYAML for running the test suite
+pip install -e ".[dev]"     # + everything above, build, twine, ruff
 ```
 
-Requires Python 3.10+.
+Or straight from GitHub: `pip install "excsv @ git+https://github.com/boligolov/excsv-python@main"`.
+
+Requires Python 3.10+. Files declaring any earlier spec version (`0.2`--`0.5`) are read as usual; only a newer `version=` warns (`unknown_version`).
 
 ## Quick start
 
@@ -65,6 +77,39 @@ fix_report = doc.fix(excsv.FixOptions())   # repairs derived metadata in place
 ```python
 doc.materialize_column("total")     # writes formula output into the data
 doc.dematerialize_column("total")   # drops the cached values, keeps formula=
+```
+
+### Charts (#chart)
+
+```python
+chart = doc.chart_by_name("top_categories")      # last line wins on duplicate names
+print(chart.type, chart.column_refs())
+doc.add_chart({"type": "bar", "name": "by_region", "x": "region", "y": "amount"})
+doc.remove_chart("by_region")
+```
+
+### Notes and links (#note, link=, #link)
+
+```python
+for n in doc.resolve_notes():                     # file order; unresolved notes are kept
+    print(n.target.value, n.row, n.col_name, n.text)
+
+links = doc.resolve_links()                       # link= templates + #link overrides
+print(links.cell_link(0, "order_id"))             # final URL, or None (no link / unsafe scheme)
+
+key, value = doc.row_anchor(3)                    # ("key", "<id>") when the table has an id column
+doc.add_note({key: value, "col": "amount", "text": "Refund pending"})
+doc.set_link({key: value, "col": "invoice", "href": "https://billing.example.com/inv/77"})
+```
+
+Only `http`, `https` and `mailto` URLs come back from `cell_link` -- the scheme is checked on the final, substituted URL. `Document.sort_rows` keeps `row=` anchors on their rows; `key=` anchors need no change.
+
+### Rename a column
+
+```python
+notices = doc.rename_column("qty", "quantity")    # header cell, formula=, #chart, #note/#link, link=
+for msg in notices:                               # #$ SQL and #chart-vega payloads are not rewritten
+    print(msg)
 ```
 
 ### Export
@@ -138,11 +183,23 @@ python scripts/sync_upstream.py   # once, to populate test/fixtures/
 pytest
 ```
 
-`tests/test_manifest_fixtures.py` walks `fixtures.yaml` and drives one test case per fixture id -- same expectations as upstream (parse ok/fail, error kinds, sidecar profiles, pack table shape). A fixture missing from disk is skipped, not failed, so a partial sync still runs the rest of the suite. Hand-written tests cover the pieces the manifest doesn't reach (sort/append, aggregations, the formula engine, computed columns, repair).
+`tests/test_manifest_fixtures.py` walks `fixtures.yaml` and drives one test case per fixture id -- same expectations as upstream (parse ok/fail, error kinds, sidecar profiles, pack table shape, computed columns, charts, resolved notes and cell links). It also checks that `ErrorKind` covers every code in the manifest's `error_kinds`. A fixture missing from disk is skipped, not failed, so a partial sync still runs the rest of the suite. Hand-written tests cover the pieces the manifest doesn't reach (sort/append, aggregations, the formula engine, computed columns, charts, notes and links, rename, repair).
+
+## Development
+
+```bash
+pip install -e ".[dev]"
+python scripts/sync_upstream.py
+ruff check src tests scripts
+pytest
+python -m build && twine check dist/*
+```
+
+See [CONTRIBUTING.md](CONTRIBUTING.md) for the spec-update workflow and release steps, and [CHANGELOG.md](CHANGELOG.md) for what changed between versions.
 
 ## Continuous integration
 
-`.github/workflows/ci.yml`: checkout -> setup Python -> clone upstream fixtures -> `pytest`, on every push/PR to `main`.
+`.github/workflows/ci.yml` runs on every push/PR to `main`: Ruff lint; the test suite on Python 3.10--3.13 against freshly synced upstream fixtures; and an sdist/wheel build checked with `twine check --strict`.
 
 ## Status
 
@@ -153,7 +210,11 @@ pytest
 | Pack `.excsv.pack.zip` | multi-table, sectioned columns, FKs | Done |
 | JSON / CSVW export | `.excsv.json` bijection, CSVW sidecar | Done |
 | Computed columns (v0.5) | `formula=`/`materialized=`, materialize/dematerialize | Done |
+| Charts | `#chart` / `#chart-vega`, checks, CRUD, JSON mirror | Done |
+| Notes and links (v0.6) | `#note`, `link=`, `#link`, `key=` anchors, scheme check | Done |
+| Column rename | every by-name reference, sidecar-safe | Done |
 | Validate / Fix | full conformance report, derived-metadata repair | Done |
+| Chart rendering, `.xlsx` interop | -- | Not yet |
 | Streaming, diff, DDL generation | -- | Not yet |
 
 ## License

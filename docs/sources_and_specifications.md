@@ -2,15 +2,19 @@
 
 Reference index for building **excsv** (Python). Use the upstream [boligolov/excsv](https://github.com/boligolov/excsv) repo as the normative source; local copies are convenience snapshots, not forks.
 
-Upstream spec is **v0.5**. This repo implements the **row family** (plain + zip) and **pack family** (`.excsv.pack.zip`), as a library only (no CLI) -- a companion port of [excsv-golang](https://github.com/boligolov/excsv-golang).
+Upstream spec is **v0.6** (notes and links). Earlier versions are read without warning. This repo implements the **row family** (plain + zip) and **pack family** (`.excsv.pack.zip`), as a library only (no CLI) -- a companion port of [excsv-golang](https://github.com/boligolov/excsv-golang).
 
 ## Upstream links
 
 | Resource | URL | Local copy |
 | --- | --- | --- |
 | Spec hub (README) | https://github.com/boligolov/excsv/blob/master/README.md | [`docs/downloaded/README.md`](downloaded/README.md) |
+| Spec changelog | https://github.com/boligolov/excsv/blob/master/CHANGELOG.md | [`docs/downloaded/CHANGELOG.md`](downloaded/CHANGELOG.md) |
 | Guide topics | https://github.com/boligolov/excsv/tree/master/docs | [`docs/downloaded/guide/`](downloaded/guide/) |
 | **Normative implementation spec** | https://github.com/boligolov/excsv/tree/master/docs/implementation | [`docs/downloaded/implementation/`](downloaded/implementation/) |
+| Error-code registry | https://github.com/boligolov/excsv/blob/master/docs/implementation/error-handling.md | [`docs/downloaded/implementation/error-handling.md`](downloaded/implementation/error-handling.md) |
+| Charts (`#chart`) | https://github.com/boligolov/excsv/blob/master/docs/implementation/charts.md | [`docs/downloaded/implementation/charts.md`](downloaded/implementation/charts.md) |
+| Notes and links (`#note`, `link=`, `#link`) | https://github.com/boligolov/excsv/blob/master/docs/implementation/notes.md | [`docs/downloaded/implementation/notes.md`](downloaded/implementation/notes.md) |
 | JSON form spec | https://github.com/boligolov/excsv/blob/master/docs/implementation/json.md | [`docs/downloaded/implementation/json.md`](downloaded/implementation/json.md) |
 | JSON Schema | https://github.com/boligolov/excsv/blob/master/schema/excsv.schema.json | [`docs/downloaded/schema/excsv.schema.json`](downloaded/schema/excsv.schema.json) |
 | JSON example | https://github.com/boligolov/excsv/blob/master/schema/example.excsv.json | [`docs/downloaded/schema/example.excsv.json`](downloaded/schema/example.excsv.json) |
@@ -23,7 +27,7 @@ Upstream spec is **v0.5**. This repo implements the **row family** (plain + zip)
 
 ### `docs/implementation/*.md` -- normative spec (highest authority)
 
-RFC 2119 parser/writer rules, error-code registry, ZIP/pack invariants. **If behaviour is not defined here, do not invent it.** Start at [`implementation/README.md`](downloaded/implementation/README.md). Error codes live in `error-handling.md`. Column types/constraints: `columns.md`. Aggregations: `aggregations.md`. JSON bijection: `json.md`.
+RFC 2119 parser/writer rules, error-code registry, ZIP/pack invariants. **If behaviour is not defined here, do not invent it.** Start at [`implementation/README.md`](downloaded/implementation/README.md). Error codes live in `error-handling.md`. Column types/constraints: `columns.md`. Charts: `charts.md`. Notes and links: `notes.md`. Aggregations: `aggregations.md`. JSON bijection: `json.md`. Version compatibility: `header.md`.
 
 When the human guide (`docs/*.md`) and the implementation spec disagree, **implementation wins**.
 
@@ -46,6 +50,7 @@ docs/
 ├── sources_and_specifications.md   <- this file
 └── downloaded/                     <- gitignored snapshots
     ├── README.md
+    ├── CHANGELOG.md                <- spec version history
     ├── guide/                      <- docs/*.md (human guide)
     ├── implementation/             <- normative topics (incl. json.md)
     ├── schema/                     <- excsv.schema.json, example.excsv.json
@@ -84,4 +89,4 @@ python scripts/sync_upstream.py --specs-only
 python scripts/sync_upstream.py --fixtures-only
 ```
 
-Note: as of this writing, upstream's `master` branch commits `fixtures/zip/` and `fixtures/pack/` directly (the `fixtures/generate/make_*_fixtures.py` scripts referenced by older tooling may or may not be present); `scripts/sync_upstream.py` handles both cases -- it runs the generators when present, and otherwise copies the committed fixture bytes directly. Also note upstream's default git branch is **not** `master`; the script always clones with `--branch master` explicitly, matching the branch the raw-content URLs above pin to.
+Note: zip/pack fixtures come from a shallow clone of upstream cached in the system temp directory (`excsv-spec-sync`). The script fetches and hard-resets that clone on every run (with `core.autocrlf=false`, since fixtures are byte-exact), runs the `fixtures/generate/make_*_fixtures.py` generators when present, and otherwise copies the committed fixture bytes. Upstream's default git branch is **not** `master`; the script always uses `master` explicitly, matching the branch the raw-content URLs above pin to.

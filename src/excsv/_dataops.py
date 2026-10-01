@@ -71,7 +71,18 @@ def sort_rows(doc: Document, keys: list[SortKey]) -> None:
             return -c if key.desc else c
         return 0
 
-    doc.data.rows.sort(key=functools.cmp_to_key(cmp))
+    # Sort a permutation rather than the rows themselves, so #note / #link
+    # row= anchors can follow their rows (notes.md § Writer obligations).
+    from ._notes import anchor_resolver, remap_row_anchors
+
+    anchors = anchor_resolver(doc)
+    rows = doc.data.rows
+    order = sorted(range(len(rows)), key=functools.cmp_to_key(lambda i, j: cmp(rows[i], rows[j])))
+    new_index = [0] * len(order)
+    for to, src in enumerate(order):
+        new_index[src] = to
+    doc.data.rows = [rows[i] for i in order]
+    remap_row_anchors(doc, anchors, new_index)
     sync_derived(doc)
 
 

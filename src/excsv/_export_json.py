@@ -1,4 +1,4 @@
-"""Document.export_json / Pack.export_json: the v0.5 JSON form (implementation/json.md).
+"""Document.export_json / Pack.export_json: the JSON form (implementation/json.md).
 
 The one documented loss is the spec's own: free-text ## comments carry no
 structured meaning and have no JSON slot.
@@ -83,6 +83,15 @@ def _append_table_json(doc: Document, into: dict) -> None:
     cols = _json_columns(doc)
     if cols:
         into["columns"] = cols
+    charts = _json_charts(doc)
+    if charts:
+        into["charts"] = charts
+    notes = _json_anchored(doc, [n.attrs for n in doc.meta.notes], _NOTE_JSON_KEYS)
+    if notes:
+        into["notes"] = notes
+    links = _json_anchored(doc, [link.attrs for link in doc.meta.links], _LINK_JSON_KEYS)
+    if links:
+        into["links"] = links
     sql = _json_sql(doc)
     if sql:
         into["sql"] = sql
@@ -90,6 +99,9 @@ def _append_table_json(doc: Document, into: dict) -> None:
     if cs:
         into["checksum"] = cs
     into["rows"] = doc.declared_or_counted_rows()
+    n, ok = parse_attr_int(doc.header.fields.get("columns"))
+    if ok:
+        into["column_count"] = n
     agg = _json_aggregates(doc)
     if agg:
         into["aggregates"] = agg
@@ -167,6 +179,85 @@ def _json_column_attr(key: str, value: str, column_type: str):
         if ok:
             return n
     return value
+
+
+def _json_charts(doc: Document) -> list:
+    """Mirrors #chart lines (charts.md § JSON mirror): a compact line becomes a
+    flat object of its attributes, a #chart-<engine>: line becomes
+    {"<engine>": <parsed payload>}. File order is preserved."""
+    out = []
+    for c in doc.meta.charts:
+        if c.is_escape:
+            try:
+                payload = json.loads(c.payload)
+            except ValueError:
+                payload = c.payload
+            out.append({c.engine: payload})
+            continue
+        out.append({k: _json_chart_attr(k, v) for k, v in c.attrs.items()})
+    return out
+
+
+def _json_chart_attr(key: str, value: str):
+    """Types a compact #chart attribute per schema/excsv.schema.json."""
+    from ._chart import chart_channel_values
+
+    if key == "tooltip":
+        refs = chart_channel_values(key, value)
+        if len(refs) > 1:
+            return refs
+    elif key == "bin":
+        # bin=1 switches binning on; any other count is the bin count.
+        if value == "1":
+            return True
+        n, ok = parse_attr_int(value)
+        if ok:
+            return n
+    elif key == "stack":
+        if value == "1":
+            return True
+        if value == "0":
+            return False
+    elif key == "limit":
+        n, ok = parse_attr_int(value)
+        if ok:
+            return n
+    elif key == "hole":
+        try:
+            return float(value)
+        except ValueError:
+            pass
+    return value
+
+
+_NOTE_JSON_KEYS = frozenset({"col", "row", "key", "text", "author", "created"})
+_LINK_JSON_KEYS = frozenset({"col", "row", "key", "href"})
+
+
+def _json_anchored(doc: Document, lines: list[dict[str, str]], known: frozenset) -> list:
+    """Mirrors #note / #link lines (notes.md § JSON mirror): one flat object per
+    line, file order preserved. row is an integer, col a name or (header=0) an
+    integer index, key always the raw id text. Unknown attributes are dropped,
+    except the x- ones the schema admits."""
+    declared = {col.attrs["name"] for col in doc.meta.columns if col.attrs.get("name")}
+    out = []
+    for attrs in lines:
+        entry: dict = {}
+        for k, v in attrs.items():
+            if k not in known and not k.startswith("x-"):
+                continue
+            value = v
+            if k == "row":
+                n, ok = parse_attr_int(v)
+                if ok:
+                    value = n
+            elif k == "col" and not doc.header.header_row and v not in declared:
+                n, ok = parse_attr_int(v)
+                if ok:
+                    value = n
+            entry[k] = value
+        out.append(entry)
+    return out
 
 
 def _json_sql(doc: Document) -> dict:

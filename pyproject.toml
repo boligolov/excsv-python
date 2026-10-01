@@ -1,21 +1,28 @@
 [build-system]
-requires = ["hatchling"]
+requires = ["hatchling>=1.27"]
 build-backend = "hatchling.build"
 
 [project]
 name = "excsv"
-version = "0.1.0"
-description = "Python reference implementation of ExCSV (Extended CSV) v0.5 -- CSV that describes itself"
+dynamic = ["version"]
+description = "Python reference implementation of ExCSV (Extended CSV) v0.6 -- CSV that describes itself"
 readme = "README.md"
 license = "MIT"
+license-files = ["LICENSE"]
 requires-python = ">=3.10"
-authors = [{ name = "Alex" }]
-keywords = ["csv", "excsv", "data-format", "parser"]
+authors = [{ name = "Alex", email = "alexander.a.lisin@gmail.com" }]
+keywords = ["csv", "tsv", "excsv", "data-format", "parser", "schema", "metadata"]
 classifiers = [
     "Development Status :: 3 - Alpha",
     "Intended Audience :: Developers",
-    "License :: OSI Approved :: MIT License",
+    "Operating System :: OS Independent",
     "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3 :: Only",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Topic :: File Formats",
     "Topic :: Software Development :: Libraries :: Python Modules",
     "Topic :: Text Processing",
 ]
@@ -23,14 +30,44 @@ dependencies = []
 
 [project.optional-dependencies]
 crypto = ["pyzipper>=0.3"]
-dev = ["pytest>=7", "pyyaml>=6"]
+test = ["pytest>=7", "pyyaml>=6"]
+dev = ["excsv[test,crypto]", "build>=1", "twine>=5", "ruff>=0.5"]
 
 [project.urls]
 Homepage = "https://excsv.org"
 Specification = "https://github.com/boligolov/excsv"
+Repository = "https://github.com/boligolov/excsv-python"
+Issues = "https://github.com/boligolov/excsv-python/issues"
+Changelog = "https://github.com/boligolov/excsv-python/blob/main/CHANGELOG.md"
+
+[tool.hatch.version]
+path = "src/excsv/__init__.py"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/excsv"]
 
+[tool.hatch.build.targets.sdist]
+include = [
+    "/src",
+    "/tests",
+    "/scripts",
+    "/docs/sources_and_specifications.md",
+    "/CHANGELOG.md",
+    "/CONTRIBUTING.md",
+    "/README.md",
+    "/LICENSE",
+]
+
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+addopts = ["-ra", "--strict-markers"]
+
+[tool.ruff]
+line-length = 120
+target-version = "py310"
+src = ["src", "tests"]
+
+[tool.ruff.lint]
+select = ["E4", "E7", "E9", "F", "W"]
+# Short single-letter names (l, r) are idiomatic in the formula lexer/parser.
+ignore = ["E741"]

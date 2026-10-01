@@ -21,13 +21,18 @@ from ._kv import is_reserved_meta_prefix, parse_header_line, parse_kv_line, skip
 from ._records import extract_data_section, first_line_bytes, split_records, trim_trailing_empty_records
 from ._sidecar_util import header_reference, is_likely_sidecar_reference
 from ._sql import parse_sql_line, sql_payload_unclosed
+from ._chart import parse_chart_line
+from ._notes import is_meta_keyword, parse_link_line, parse_note_line
 from ._warnings import (
     apply_checksum_warning,
+    apply_columns_mismatch_warning,
     apply_rows_mismatch_warning,
+    check_rows_declared,
     collect_header_warnings,
     collect_meta_warnings,
     collect_sql_warnings,
     encoding_issue,
+    enforce_declarations,
 )
 
 
@@ -59,6 +64,8 @@ def parse_bytes(data: bytes, opts: ParseOptions) -> ParseResult:
     records = split_records(data)
     full = data.decode("utf-8", errors="surrogateescape")
     res = _parse_records(records, full, opts)
+    # Checked last: every more specific defect in the file takes precedence.
+    check_rows_declared(res, opts)
     from ._warnings import append_extsv_warning
 
     iss = encoding_issue(data, enc)
@@ -148,6 +155,29 @@ def _parse_records(records: list, full: str, opts: ParseOptions) -> ParseResult:
             if ok:
                 _upsert_kv(doc.meta.file_meta, key, val)
             last_was_sql = False
+        elif line.startswith("#chart"):
+            chart, dropped = parse_chart_line(line, ln)
+            if chart is None:
+                doc.meta.unknown.append(UnknownMetaLine(text=line, line=ln))
+            elif opts.pack_role == "manifest":
+                res.warn(ErrorKind.CHART_ON_MANIFEST, ln, "#chart on a pack manifest; charts are per-table, ignored")
+            else:
+                for tok in dropped:
+                    res.warn(ErrorKind.CHART_UNKNOWN_CHANNEL, ln, "malformed #chart token " + tok + "; ignored")
+                doc.meta.charts.append(chart)
+            last_was_sql = False
+        elif is_meta_keyword(line, "#note") or is_meta_keyword(line, "#link"):
+            is_note = line.startswith("#note")
+            if opts.pack_role == "manifest":
+                if is_note:
+                    res.warn(ErrorKind.NOTE_ON_MANIFEST, ln, "#note on a pack manifest; notes are per-table, ignored")
+                else:
+                    res.warn(ErrorKind.LINK_ON_MANIFEST, ln, "#link on a pack manifest; links are per-table, ignored")
+            elif is_note:
+                doc.meta.notes.append(parse_note_line(line, ln))
+            else:
+                doc.meta.links.append(parse_link_line(line, ln))
+            last_was_sql = False
         elif line.startswith("#column"):
             rest = line[len("#column "):] if line.startswith("#column ") else line
             attrs = parse_kv_line(rest, ln)
@@ -207,7 +237,9 @@ def _parse_records(records: list, full: str, opts: ParseOptions) -> ParseResult:
 
     validate_columns(res, col_count)
     collect_meta_warnings(res)
+    enforce_declarations(res)
     apply_rows_mismatch_warning(res)
+    apply_columns_mismatch_warning(res, opts)
 
     if doc.header.checksum is not None and data_records:
         data_section = extract_data_section(full, records, idx)

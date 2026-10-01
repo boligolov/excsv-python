@@ -13,8 +13,8 @@ from ._agg import (
 from ._checksum import verify_checksum
 from ._column import column_count_from_schema, effective_column_count, is_virtual_column
 from ._dialect import classify_checksum_field
-from ._document import ColumnDef, Document, ParseOptions, ParseResult
-from ._errors import ErrorKind, ParseError, new_issue
+from ._document import CURRENT_VERSION, ColumnDef, Document, ParseOptions, ParseResult
+from ._errors import ErrorKind, ParseError, fail, is_fail_kind, new_issue
 from ._kv import is_reserved_header_key
 from ._sidecar_util import sidecar_ext_mismatch
 
@@ -24,10 +24,50 @@ KNOWN_COLUMN_ATTRS = {
     "order", "separator", "enum", "pattern",
     "regexp_dialect", "min", "max", "len_min",
     "len_max", "unique", "required", "default",
-    "formula", "materialized",
+    "formula", "materialized", "link",
 }
 
-IMPLEMENTED_VERSIONS = {"0.2", "0.3", "0.4", "0.5"}
+IMPLEMENTED_VERSIONS = {"0.2", "0.3", "0.4", "0.5", "0.6"}
+
+# Versions in which rows= was still MAY; it became MUST in 0.5.
+ROWS_OPTIONAL_VERSIONS = {"0.2", "0.3", "0.4"}
+
+
+def parse_version(v: str) -> list[int] | None:
+    """Splits a dotted numeric version ("0.6") into its parts, or None."""
+    if not v:
+        return None
+    out = []
+    for part in v.split("."):
+        if not part.isdigit():
+            return None
+        out.append(int(part))
+    return out
+
+
+def compare_versions(a: str, b: str) -> int:
+    """Orders two dotted numeric versions; an unparseable one sorts after
+    every parseable one."""
+    pa, pb = parse_version(a), parse_version(b)
+    if pa is None and pb is None:
+        return (a > b) - (a < b)
+    if pa is None:
+        return 1
+    if pb is None:
+        return -1
+    n = max(len(pa), len(pb))
+    pa += [0] * (n - len(pa))
+    pb += [0] * (n - len(pb))
+    return (pa > pb) - (pa < pb)
+
+
+def is_known_version(v: str) -> bool:
+    """Reports whether this parser reads version= v without unknown_version:
+    every implemented version, and any earlier one (header.md § Version
+    compatibility)."""
+    if v in IMPLEMENTED_VERSIONS:
+        return True
+    return parse_version(v) is not None and compare_versions(v, CURRENT_VERSION) < 0
 
 _KNOWN_8BIT_ENCODINGS = {
     "ISO-8859-1", "ISO8859-1", "LATIN1", "WINDOWS-1252", "US-ASCII", "ASCII", "CP1252",
@@ -61,7 +101,7 @@ def known_8bit_encoding(e: str) -> bool:
 
 def collect_header_warnings(res: ParseResult, opts: ParseOptions) -> None:
     h = res.doc.header
-    if h.has_magic_line and h.version and h.version not in IMPLEMENTED_VERSIONS:
+    if h.has_magic_line and h.version and not is_known_version(h.version):
         res.warn(ErrorKind.UNKNOWN_VERSION, 1, "unknown version=" + h.version)
     cs = h.fields.get("checksum", "")
     if cs:
@@ -236,3 +276,85 @@ def apply_rows_mismatch_warning(res: ParseResult) -> None:
         return
     if res.doc.row_count() != res.doc.header.rows:
         res.warn(ErrorKind.ROWS_MISMATCH, 1, "rows= does not match data row count")
+
+
+def physical_column_count(doc: Document) -> int:
+    """The document's physical width: stored plus materialized computed
+    columns. It comes from the data (header row, else first row) when a data
+    section was read, otherwise from the #column declarations. Virtual computed
+    columns never count."""
+    w = physical_width(doc)
+    if w > 0:
+        return w
+    return sum(1 for col in doc.meta.columns if not is_virtual_column(col))
+
+
+def apply_columns_mismatch_warning(res: ParseResult, opts: ParseOptions) -> None:
+    """Compares a declared columns= against the physical width. Pack headers
+    are covered by pack_column_count_mismatch."""
+    if opts.pack_role:
+        return
+    raw = res.doc.header.fields.get("columns")
+    if raw is None:
+        return
+    try:
+        want = int(raw.strip())
+    except ValueError:
+        res.warn(ErrorKind.COLUMNS_MISMATCH, 1, "columns=" + raw + " is not a column count")
+        return
+    got = physical_column_count(res.doc)
+    if got > 0 and got != want:
+        res.warn(ErrorKind.COLUMNS_MISMATCH, 1,
+                 f"columns={raw} but the document has {got} physical columns")
+
+
+def check_rows_declared(res: ParseResult, opts: ParseOptions) -> None:
+    """Enforces rows= on every v0.5+ #!excsv header except a pack manifest,
+    which has no single row count. A strict read fails (header_missing_rows);
+    a lenient one only warns, so that a repair can still open the file."""
+    h = res.doc.header
+    if (not h.has_magic_line or h.rows is not None or h.version in ROWS_OPTIONAL_VERSIONS
+            or opts.pack_role == "manifest" or h.fields.get("layout") == "pack"):
+        return
+    if opts.strict:
+        raise fail(ErrorKind.HEADER_MISSING_ROWS, 1, "header lacks rows=")
+    res.warn(ErrorKind.HEADER_MISSING_ROWS, 1, "header lacks rows=")
+
+
+def has_data_section(doc: Document) -> bool:
+    return doc.data.has_header_row or bool(doc.data.rows)
+
+
+def enforce_declarations(res: ParseResult) -> None:
+    """Applies the declaration checks whose FAIL codes a conforming reader MUST
+    reject on (computed columns, charts, notes and links), and surfaces their
+    WARN codes.
+
+    computed_materialized_mismatch and note/link resolution need the physical
+    data, so they only run once a data section has actually been read -- a
+    metadata-only read (ZIP comment peek, unresolved sidecar, pack table
+    header) has nothing to compare against yet.
+    """
+    from ._chart import check_charts
+    from ._notes import check_notes_links
+    from ._validate import check_computed_columns, check_computed_materialization
+
+    doc = res.doc
+    for iss in check_computed_columns(doc):
+        if is_fail_kind(iss.kind):
+            raise ParseError(iss)
+    if has_data_section(doc):
+        issues = check_computed_materialization(doc)
+        if issues:
+            raise ParseError(issues[0])
+    warns = []
+    for iss in check_charts(doc):
+        if is_fail_kind(iss.kind):
+            raise ParseError(iss)
+        warns.append(iss)
+    if has_data_section(doc):
+        warns.extend(check_notes_links(doc))
+    res.warnings.extend(warns)
+
+
+Document.physical_column_count = physical_column_count

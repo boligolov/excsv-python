@@ -2,12 +2,13 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from enum import Enum
 
 
 class ErrorKind(str, Enum):
     HEADER_MISSING_VERSION = "header_missing_version"
+    HEADER_MISSING_ROWS = "header_missing_rows"
     HEADER_MALFORMED_KV = "header_malformed_kv"
     HEADER_MALFORMED_MAGIC = "header_malformed_magic"
     HEADER_UNCLOSED_QUOTE = "header_unclosed_quote"
@@ -33,6 +34,10 @@ class ErrorKind(str, Enum):
     SQL_UNKNOWN_VERB = "sql_unknown_verb"
     SQL_EMBEDDED_NEWLINE = "sql_embedded_newline"
     SQL_UNKNOWN_DIALECT = "sql_unknown_dialect"
+    SQL_DIALECT_FAMILY = "sql_dialect_family"
+    SQL_VERSION_MISMATCH = "sql_version_mismatch"
+    SQL_NO_MATCH = "sql_no_match"
+    DDL_COLUMN_MISMATCH = "ddl_column_mismatch"
     DATA_ROW_ARITY_MISMATCH = "data_row_arity_mismatch"
     QUOTE_NONE_DELIMITER_IN_VALUE = "quote_none_delimiter_in_value"
     FIRST_FIELD_HASH_UNQUOTED = "first_field_hash_unquoted"
@@ -67,6 +72,7 @@ class ErrorKind(str, Enum):
     PACK_SECTION_BOUNDARY_MISMATCH = "pack_section_boundary_mismatch"
     ORIGINAL_SIZE_ON_PLAIN = "original_size_on_plain"
     ROWS_MISMATCH = "rows_mismatch"
+    COLUMNS_MISMATCH = "columns_mismatch"
     SIDECAR_HAS_DATA_SECTION = "sidecar_has_data_section"
     SIDECAR_MISSING_REFERENCE = "sidecar_missing_reference"
     SIDECAR_REFERENCE_NOT_FOUND = "sidecar_reference_not_found"
@@ -84,6 +90,34 @@ class ErrorKind(str, Enum):
     COMPUTED_MATERIALIZED_MISMATCH = "computed_materialized_mismatch"
     COMPUTED_DEFAULT_IGNORED = "computed_default_ignored"
     COMPUTED_STALE = "computed_stale"
+
+    # Charts (#chart / #chart-<engine>:).
+    CHART_MISSING_TYPE = "chart_missing_type"
+    CHART_MISSING_NAME = "chart_missing_name"
+    CHART_UNKNOWN_COLUMN = "chart_unknown_column"
+    CHART_MISSING_REQUIRED_CHANNEL = "chart_missing_required_channel"
+    CHART_VEGA_INVALID_JSON = "chart_vega_invalid_json"
+    CHART_DUPLICATE_NAME = "chart_duplicate_name"
+    CHART_ON_MANIFEST = "chart_on_manifest"
+    CHART_UNKNOWN_TYPE = "chart_unknown_type"
+    CHART_UNKNOWN_CHANNEL = "chart_unknown_channel"
+
+    # Notes and links (#note, link=, #link), added in v0.6.
+    NOTE_MALFORMED = "note_malformed"
+    NOTE_MISSING_TEXT = "note_missing_text"
+    NOTE_ROW_AND_KEY = "note_row_and_key"
+    NOTE_UNRESOLVED = "note_unresolved"
+    NOTE_ON_MANIFEST = "note_on_manifest"
+    LINK_MALFORMED = "link_malformed"
+    LINK_MISSING_HREF = "link_missing_href"
+    LINK_MISSING_ADDRESS = "link_missing_address"
+    LINK_ROW_AND_KEY = "link_row_and_key"
+    LINK_UNRESOLVED = "link_unresolved"
+    LINK_DUPLICATE = "link_duplicate"
+    LINK_ON_MANIFEST = "link_on_manifest"
+    LINK_UNKNOWN_COLUMN = "link_unknown_column"
+    LINK_TEMPLATE_MALFORMED = "link_template_malformed"
+    LINK_UNSAFE_SCHEME = "link_unsafe_scheme"
 
     def __str__(self) -> str:  # pragma: no cover - trivial
         return self.value
@@ -111,6 +145,35 @@ class ParseError(Exception):
     @property
     def kind(self) -> ErrorKind:
         return self.issue.kind
+
+
+# Codes found by a declaration check (computed columns, charts, notes and
+# links) that are FAIL severity in the spec's registry, as opposed to WARN.
+_DECLARATION_FAIL_KINDS = frozenset({
+    ErrorKind.FORMULA_REFERENCES_COMPUTED,
+    ErrorKind.FORMULA_UNKNOWN_REFERENCE,
+    ErrorKind.FORMULA_PARSE_ERROR,
+    ErrorKind.FORMULA_INDEX_FORBIDDEN,
+    ErrorKind.FORMULA_REQUIRES_HEADER,
+    ErrorKind.COMPUTED_MATERIALIZED_MISMATCH,
+    ErrorKind.CHART_MISSING_TYPE,
+    ErrorKind.CHART_MISSING_NAME,
+    ErrorKind.CHART_UNKNOWN_COLUMN,
+    ErrorKind.CHART_MISSING_REQUIRED_CHANNEL,
+    ErrorKind.CHART_VEGA_INVALID_JSON,
+    ErrorKind.NOTE_MALFORMED,
+    ErrorKind.NOTE_MISSING_TEXT,
+    ErrorKind.NOTE_ROW_AND_KEY,
+    ErrorKind.LINK_MALFORMED,
+    ErrorKind.LINK_MISSING_HREF,
+    ErrorKind.LINK_MISSING_ADDRESS,
+    ErrorKind.LINK_ROW_AND_KEY,
+})
+
+
+def is_fail_kind(kind: ErrorKind) -> bool:
+    """Reports whether a declaration-check code is FAIL severity (vs WARN)."""
+    return kind in _DECLARATION_FAIL_KINDS
 
 
 def new_issue(kind: ErrorKind, line: int, msg: str) -> Issue:

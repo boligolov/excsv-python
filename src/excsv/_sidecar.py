@@ -15,7 +15,13 @@ from ._sidecar_util import (
     header_reference,
     looks_abs_windows,
 )
-from ._warnings import apply_checksum_warning, apply_rows_mismatch_warning, collect_meta_warnings
+from ._warnings import (
+    apply_checksum_warning,
+    apply_columns_mismatch_warning,
+    apply_rows_mismatch_warning,
+    collect_meta_warnings,
+    enforce_declarations,
+)
 
 __all__ = [
     "header_reference",
@@ -78,10 +84,12 @@ def attach_referenced_data(res: ParseResult, data_path: str, data: bytes, opts: 
         col_count = column_count_from_schema(doc.meta.columns)
     validate_columns(res, col_count)
     collect_meta_warnings(res)
+    enforce_declarations(res)
     from ._warnings import append_extsv_warning
 
     append_extsv_warning(res, doc.source.sidecar_path)
     apply_rows_mismatch_warning(res)
+    apply_columns_mismatch_warning(res, opts)
     apply_checksum_warning(res, data_section, True)
     return res
 
@@ -103,6 +111,7 @@ def finish_sidecar_meta(res: ParseResult, opts: ParseOptions) -> ParseResult:
 
     if not opts.resolve_reference:
         collect_meta_warnings(res)
+        enforce_declarations(res)
         return res
 
     data_path = resolve_reference_path(opts.source_path, ref)
@@ -112,6 +121,7 @@ def finish_sidecar_meta(res: ParseResult, opts: ParseOptions) -> ParseResult:
     except FileNotFoundError:
         res.warn(ErrorKind.SIDECAR_REFERENCE_NOT_FOUND, 1, "referenced file not found: " + ref)
         collect_meta_warnings(res)
+        enforce_declarations(res)
         return res
     return attach_referenced_data(res, data_path, data, opts)
 

@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from ._document import ColumnDef, Document
+from ._document import Document
 
 STANDARD_AGGREGATIONS = {
     "count_nonnull", "count_null", "count_distinct",

@@ -99,9 +99,11 @@ def test_virtual_column_declared_between_stored_columns():
     ],
 )
 def test_formula_validation_error_codes(src, want):
-    doc = parse_computed_doc(src)
-    report = doc.validate(excsv.ValidateOptions())
-    assert any(f.issue.kind == want for f in report.findings), report.findings
+    # All three are FAIL in the registry: a conforming reader rejects the file
+    # at parse time rather than reporting it from validate.
+    with pytest.raises(excsv.ParseError) as exc_info:
+        excsv.parse_bytes(src.encode(), excsv.strict_options())
+    assert exc_info.value.issue.kind == want
 
 
 def test_formula_index_forbidden_fails_at_parse():
