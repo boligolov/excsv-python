@@ -22,9 +22,6 @@ KNOWN_COLUMN_TYPES = {
     "datetime", "uuid", "binary",
 }
 
-IMPLEMENTED_VERSIONS = {"0.2", "0.3", "0.4", "0.5"}
-
-
 @dataclass
 class ValidateOptions:
     with_data: bool = False
@@ -82,6 +79,13 @@ def validate(doc: Document, opts: ValidateOptions | None = None) -> ValidateRepo
     for u in doc.meta.unknown:
         add(new_issue(ErrorKind.UNKNOWN_META_LINE, u.line,
                        "unrecognized meta line carried through verbatim: " + u.text))
+    # Notes and links are meta lines, but their addresses resolve against the
+    # rows, so they are checked whenever the data has been read.
+    if doc.data.has_header_row or doc.data.rows:
+        from ._notes import check_notes_links
+
+        for iss in check_notes_links(doc):
+            add(iss)
     if not report.with_data:
         return report
 
@@ -114,14 +118,16 @@ def validate(doc: Document, opts: ValidateOptions | None = None) -> ValidateRepo
                                        ": materialized value may not reflect current formula output"))
     for iss in _check_aggregations(doc):
         add(iss, "agg")
-    for iss in _check_computed_materialization(doc):
+    for iss in check_computed_materialization(doc):
         add(iss)
     return report
 
 
 def _check_declarations(doc: Document) -> list[Issue]:
     issues: list[Issue] = []
-    if doc.header.has_magic_line and doc.header.version and doc.header.version not in IMPLEMENTED_VERSIONS:
+    from ._warnings import is_known_version
+
+    if doc.header.has_magic_line and doc.header.version and not is_known_version(doc.header.version):
         issues.append(new_issue(ErrorKind.UNKNOWN_VERSION, 1, "unknown version=" + doc.header.version))
     from ._document import Profile
 
@@ -157,11 +163,14 @@ def _check_declarations(doc: Document) -> list[Issue]:
             issues.append(new_issue(ErrorKind.SQL_UNKNOWN_VERB, stmt.line, "unknown #$ verb " + stmt.verb))
         if stmt.qualified and stmt.dialect and not is_known_dialect(stmt.dialect):
             issues.append(new_issue(ErrorKind.SQL_UNKNOWN_DIALECT, stmt.line, "unknown SQL dialect " + stmt.dialect))
-    issues.extend(_check_computed_columns(doc))
+    issues.extend(check_computed_columns(doc))
+    from ._chart import check_charts
+
+    issues.extend(check_charts(doc))
     return issues
 
 
-def _check_computed_columns(doc: Document) -> list[Issue]:
+def check_computed_columns(doc: Document) -> list[Issue]:
     issues: list[Issue] = []
     by_name = {col.attrs["name"]: col for col in doc.meta.columns if col.attrs.get("name")}
     for col in doc.meta.columns:
@@ -193,7 +202,7 @@ def _check_computed_columns(doc: Document) -> list[Issue]:
     return issues
 
 
-def _check_computed_materialization(doc: Document) -> list[Issue]:
+def check_computed_materialization(doc: Document) -> list[Issue]:
     issues: list[Issue] = []
     for col in doc.meta.columns:
         if not col.attrs.get("formula"):

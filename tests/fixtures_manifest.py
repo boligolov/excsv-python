@@ -2,11 +2,9 @@
 test/fixtures/fixtures.yaml and asserts a ParseResult/error against one
 fixture's `expect:` block.
 
-The manifest file is not one YAML document: it is an `error_kinds:` mapping
-followed immediately by a top-level `- id: ...` sequence with no `---`
-separator (and no enclosing `fixtures:` key). Upstream's Go loader works
-around this by splitting the text at the first "\\n- id:" and parsing each
-half separately; we do the same here.
+The manifest is a two-document YAML stream: an `error_kinds:` mapping, `---`,
+then the flat list of fixture entries (plan/02-fixtures.md). Older snapshots
+had no `---` separator; the loader still accepts that layout.
 """
 
 from __future__ import annotations
@@ -33,13 +31,19 @@ def _fix_null_keys(obj: Any) -> Any:
 
 
 def load_manifest(path: Path) -> dict:
-    text = Path(path).read_text(encoding="utf-8")
-    idx = text.find("\n- id:")
-    if idx < 0:
-        raise ValueError("fixtures list not found in manifest")
-    header = yaml.safe_load(text[: idx + 1]) or {}
-    fixtures = _fix_null_keys(yaml.safe_load(text[idx + 1:]) or [])
-    return {"error_kinds": header.get("error_kinds", []), "fixtures": fixtures}
+    text = Path(path).read_text(encoding="utf-8-sig")
+    docs = [d for d in yaml.safe_load_all(text) if d is not None] if "\n---" in text else []
+    if len(docs) == 2:
+        # v0.6+ layout: `error_kinds:` mapping, `---`, then the fixture list.
+        header, fixtures = docs
+    else:
+        # Older layout: no `---` separator; split at the first fixture entry.
+        idx = text.find("\n- id:")
+        if idx < 0:
+            raise ValueError("fixtures list not found in manifest")
+        header = yaml.safe_load(text[: idx + 1]) or {}
+        fixtures = yaml.safe_load(text[idx + 1:]) or []
+    return {"error_kinds": header.get("error_kinds", []), "fixtures": _fix_null_keys(fixtures)}
 
 
 def root_dir(manifest_path: Path) -> Path:
@@ -59,24 +63,7 @@ def filter_rf(manifest: dict) -> list[dict]:
 
 # UpstreamFixtureBugs are files whose bytes/yaml disagree with the spec. The
 # parser follows the spec; skip until boligolov/excsv fixes the corpus.
-UPSTREAM_FIXTURE_BUGS = {
-    "plain/valid/039_sidecar_checksum_pair.excsv":
-        "declared checksum does not match sibling CSV",
-    "plain/invalid/024_invalid_utf8_byte_sequence.excsv":
-        "file contains U+FFFD (valid UTF-8), not an invalid sequence",
-    "pack/invalid/006_section_partition_error.excsv.pack.zip":
-        "generator corrupts 04.col but files are named 4.col",
-    "pack/invalid/007_section_boundary_mismatch.excsv.pack.zip":
-        "generator corrupts 04.col/02.col but pad width is 1",
-    "zip/valid/013_comment_header_disagree.excsv.zip":
-        "generator injects the disagreement via a version=0.4 -> 0.2 replace, a "
-        "no-op now that the derived plain fixture says version=0.5 -- comment "
-        "and header end up byte-identical, nothing to warn about",
-}
-
-# Versions the pack/zip fixture *generator* upstream hasn't been re-run for
-# yet, even though fixtures.yaml already declares a newer spec version.
-STALE_GENERATED_VERSIONS = {"0.3", "0.4"}
+UPSTREAM_FIXTURE_BUGS: dict[str, str] = {}
 
 
 def header_field(doc: excsv.Document, key: str) -> str:
@@ -129,6 +116,79 @@ def pack_dialects(pack) -> list[str]:
     return out
 
 
+def physical_column_decls(doc: excsv.Document) -> int:
+    return sum(1 for col in doc.meta.columns if not _is_virtual(col))
+
+
+def _is_virtual(col: excsv.ColumnDef) -> bool:
+    return bool(col.attrs.get("formula")) and col.attrs.get("materialized") != "1"
+
+
+def table_doc(res, expect: dict) -> excsv.Document:
+    """The document whose schema a fixture's expectations describe: the named
+    (or only) pack table for a pack, otherwise the document itself."""
+    if res.pack is None:
+        return res.doc
+    name = (expect.get("table") or {}).get("name", "")
+    if name:
+        try:
+            return res.pack.table(name).document()
+        except KeyError:
+            pass
+    pt = res.pack.default_table()
+    if pt is not None:
+        return pt.document()
+    return res.doc
+
+
+def assert_computed(doc: excsv.Document, want: dict) -> None:
+    virtual, materialized = [], []
+    for col in doc.meta.columns:
+        if _is_virtual(col):
+            virtual.append(col.attrs.get("name", ""))
+        elif col.attrs.get("formula"):
+            materialized.append(col.attrs.get("name", ""))
+    if want.get("virtual") is not None:
+        assert virtual == list(want["virtual"]), f"computed.virtual: got {virtual} want {want['virtual']}"
+    if want.get("materialized") is not None:
+        assert materialized == list(want["materialized"]),             f"computed.materialized: got {materialized} want {want['materialized']}"
+
+
+def assert_charts(doc: excsv.Document, want: dict) -> None:
+    charts = doc.meta.charts
+    if want.get("count") is not None:
+        assert len(charts) == want["count"], f"charts.count: got {len(charts)} want {want['count']}"
+    types = [c.type for c in charts if not c.is_escape]
+    engines = [c.engine for c in charts if c.is_escape]
+    if want.get("types") is not None:
+        assert types == list(want["types"]), f"charts.types: got {types} want {want['types']}"
+    if want.get("engines") is not None:
+        assert engines == list(want["engines"]), f"charts.engines: got {engines} want {want['engines']}"
+
+
+def assert_notes(doc: excsv.Document, want: dict) -> None:
+    notes = doc.resolve_notes()
+    if want.get("count") is not None:
+        assert len(notes) == want["count"], f"notes.count: got {len(notes)} want {want['count']}"
+    if want.get("targets") is not None:
+        got = [n.target.value for n in notes]
+        assert got == list(want["targets"]), f"notes.targets: got {got} want {want['targets']}"
+    if want.get("texts") is not None:
+        got = [n.text for n in notes]
+        assert got == list(want["texts"]), f"notes.texts: got {got} want {want['texts']}"
+    if want.get("resolved_rows") is not None:
+        got = [n.row for n in notes]
+        assert got == list(want["resolved_rows"]), f"notes.resolved_rows: got {got} want {want['resolved_rows']}"
+
+
+def assert_cell_links(doc: excsv.Document, want: dict) -> None:
+    links = doc.resolve_links()
+    for addr, exp in want.items():
+        row, _, col = str(addr).partition(",")
+        got = links.cell_link(int(row), col)
+        assert got == exp, f"cell_links[{addr!r}]: got {got!r} want {exp!r}"
+
+
 def assert_expectation(fixture: dict, res, err: Exception | None) -> None:
     expect = fixture.get("expect") or {}
     expect_ok = expect.get("parse") == "ok"
@@ -141,8 +201,6 @@ def assert_expectation(fixture: dict, res, err: Exception | None) -> None:
         for k, v in (expect.get("header") or {}).items():
             got = header_field(doc, k)
             want = str(v)
-            if k == "version" and want != got and got in STALE_GENERATED_VERSIONS:
-                continue
             assert got == want, f"header[{k!r}]: got {got!r} want {want!r}"
 
         for k, v in (expect.get("meta") or {}).items():
@@ -152,7 +210,21 @@ def assert_expectation(fixture: dict, res, err: Exception | None) -> None:
             assert doc.row_count() == expect["rows"], f"rows: got {doc.row_count()} want {expect['rows']}"
 
         if expect.get("columns") is not None:
-            assert len(doc.meta.columns) == expect["columns"], "columns count mismatch"
+            got = physical_column_decls(doc)
+            assert got == expect["columns"], f"columns: got {got} want {expect['columns']}"
+
+        tdoc = table_doc(res, expect)
+        if expect.get("computed") is not None:
+            assert_computed(tdoc, expect["computed"])
+        if expect.get("charts") is not None:
+            assert_charts(doc, expect["charts"])
+        if expect.get("notes") is not None:
+            assert_notes(tdoc, expect["notes"])
+        if (expect.get("links") or {}).get("count") is not None:
+            got = len(tdoc.meta.links)
+            assert got == expect["links"]["count"], f"links.count: got {got} want {expect['links']['count']}"
+        if expect.get("cell_links") is not None:
+            assert_cell_links(tdoc, expect["cell_links"])
 
         if expect.get("sql") is not None:
             sql_exp = expect["sql"]
@@ -199,13 +271,7 @@ def assert_expectation(fixture: dict, res, err: Exception | None) -> None:
             c = doc.source.comment
             starts_with = c_exp.get("starts_with", "")
             if starts_with:
-                ok = c.startswith(starts_with)
-                if not ok and "version=0.5" in starts_with:
-                    for stale in STALE_GENERATED_VERSIONS:
-                        if c.startswith(starts_with.replace("version=0.5", "version=" + stale)):
-                            ok = True
-                            break
-                assert ok, f"comment starts_with: got {c!r}"
+                assert c.startswith(starts_with), f"comment starts_with: got {c!r}"
             ends_with = c_exp.get("ends_with", "")
             if ends_with:
                 assert c.endswith(ends_with), f"comment ends_with: got {c!r}"

@@ -11,7 +11,6 @@ import io
 import os
 import zipfile
 from dataclasses import dataclass, field
-from datetime import datetime, timezone
 
 PRIMARY_NOT_FIRST = "zip_primary_not_first"
 ENCRYPTED = "zip_encrypted"
@@ -227,6 +226,9 @@ def _strip_original_size(header: str) -> str:
 
 
 def _build_comment(inner_text: str) -> str:
+    """Summarizes the inner file's header and meta lines in the spec's priority
+    order (zip.md § Priority order), keeping file order within each group, so
+    that truncation drops the least important lines first."""
     lines = []
     for line in inner_text.split("\n"):
         line = line.rstrip("\r")
@@ -236,7 +238,40 @@ def _build_comment(inner_text: str) -> str:
             lines.append(line)
             continue
         break
+    lines.sort(key=_comment_rank)  # stable: file order within a group
     return "\n".join(lines)
+
+
+_PROVENANCE_META_KEYS = ("source", "author", "created", "exported", "license", "tool")
+
+
+def _comment_rank(line: str) -> int:
+    """A meta line's ZIP comment priority; lower comes first."""
+
+    def has_meta_key(*keys: str) -> bool:
+        return any(line.startswith("#@" + k + ":") for k in keys)
+
+    if line.startswith("#!"):
+        return 1
+    if has_meta_key(*_PROVENANCE_META_KEYS):
+        return 2
+    if line.startswith("#column"):
+        return 3
+    if line.startswith("#$ddl"):
+        return 4
+    if line.startswith("#%"):
+        return 5
+    if has_meta_key("comment", "tags"):
+        return 6
+    if line.startswith("#@"):
+        return 7
+    if line.startswith("#$dql"):
+        return 8
+    if line.startswith("#chart"):
+        return 9
+    if line.startswith("#note") or line.startswith("#link"):
+        return 10
+    return 11
 
 
 def _truncate_comment(comment: str) -> str:

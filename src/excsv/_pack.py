@@ -50,7 +50,6 @@ def parse_pack_path(path_name: str, data: bytes, opts: ParseOptions) -> ParseRes
         else:
             for decl in res.doc.meta.tables:
                 pack.tables.append(_load_pack_table(files, decl, opts))
-        result_doc = res.doc
     else:
         pack.discovered = True
         doc = Document(
@@ -61,16 +60,22 @@ def parse_pack_path(path_name: str, data: bytes, opts: ParseOptions) -> ParseRes
         doc.source.zip_path = path_name
         doc.source.comment = comment
         apply_header_defaults(doc.header)
+        res = ParseResult(doc=doc)
         pack.tables = _discover_pack_tables(files)
         pack.manifest = doc
-        result_doc = doc
+
+    from ._notes import check_notes_links
 
     for pt in pack.tables:
         _validate_pack_table(pt, files)
         _materialize_pack_table(pt)
+        # A table's _header.excsv is parsed before its .col data is read, so
+        # its #note / #link lines resolve only now.
+        res.warnings.extend(check_notes_links(pt.header))
 
-    result_doc.form = Form.PACK
-    return ParseResult(doc=result_doc, pack=pack)
+    res.pack = pack
+    res.doc.form = Form.PACK
+    return res
 
 
 def _discover_pack_tables(files: dict) -> list[PackTable]:

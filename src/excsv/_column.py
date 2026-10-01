@@ -7,7 +7,7 @@ from ._errors import ErrorKind, fail
 
 COLUMN_ATTR_DISPLAY_ORDER = [
     "name", "index", "title", "description", "type", "format", "unit",
-    "role", "agg", "order", "separator", "enum", "pattern", "regexp_dialect",
+    "role", "agg", "order", "separator", "link", "enum", "pattern", "regexp_dialect",
     "min", "max", "len_min", "len_max", "unique", "required", "default",
     "formula", "materialized",
 ]
@@ -125,6 +125,10 @@ def upsert_column(doc: Document, name: str, attrs: dict[str, str]) -> None:
         raise ValueError("column name is required")
     if " " in name:
         raise fail(ErrorKind.COLUMN_MALFORMED_ATTRIBUTE, 0, "column name must not contain spaces")
+    if attrs.get("link"):
+        from ._notes import NOTES_VERSION, require_version
+
+        require_version(doc, NOTES_VERSION)
     idx, col, ok = column_by_name(doc, name)
     if not ok:
         merged = {"name": name}

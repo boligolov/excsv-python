@@ -6,7 +6,7 @@ from dataclasses import dataclass, field
 from enum import Enum
 from typing import Optional
 
-CURRENT_VERSION = "0.5"
+CURRENT_VERSION = "0.6"
 
 
 class Form(Enum):
@@ -58,6 +58,88 @@ class SQLStatement:
     qualified: bool = False
 
 
+class NoteTarget(str, Enum):
+    """What a #note is attached to, decided by its address fields."""
+
+    CELL = "cell"
+    COLUMN = "column"
+    ROW = "row"
+    TABLE = "table"
+
+
+# The reserved row-count value usable wherever a #chart channel expects a
+# column name (e.g. y=count() for a histogram).
+CHART_COUNT_LITERAL = "count()"
+
+
+@dataclass
+class Chart:
+    """One #chart suggestion (implementation/charts.md).
+
+    The compact form (``#chart type=bar name=... x=... y=...``) keeps its
+    attributes in ``attrs``, in file order. The escape-hatch form
+    (``#chart-<engine>: <payload>``) sets ``engine`` and keeps the raw payload.
+    """
+
+    attrs: dict[str, str] = field(default_factory=dict)
+    engine: str = ""
+    payload: str = ""
+    line: int = 0
+
+    @property
+    def is_escape(self) -> bool:
+        return self.engine != ""
+
+    @property
+    def type(self) -> str:
+        return self.attrs.get("type", "")
+
+    @property
+    def name(self) -> str:
+        return self.attrs.get("name", "")
+
+
+@dataclass
+class Note:
+    """One #note line: a remark on a cell, a row, a column, or the table.
+
+    ``attrs`` keeps every attribute in file order, unknown ones included, so
+    the line round-trips unchanged.
+    """
+
+    attrs: dict[str, str] = field(default_factory=dict)
+    line: int = 0
+
+    @property
+    def text(self) -> str:
+        return self.attrs.get("text", "")
+
+    @property
+    def target(self) -> NoteTarget:
+        has_col = "col" in self.attrs
+        has_row = "row" in self.attrs or "key" in self.attrs
+        if has_row and has_col:
+            return NoteTarget.CELL
+        if has_col:
+            return NoteTarget.COLUMN
+        if has_row:
+            return NoteTarget.ROW
+        return NoteTarget.TABLE
+
+
+@dataclass
+class Link:
+    """One #link line: a URL pinned to a single cell, overriding the column's
+    ``link=`` template."""
+
+    attrs: dict[str, str] = field(default_factory=dict)
+    line: int = 0
+
+    @property
+    def href(self) -> str:
+        return self.attrs.get("href", "")
+
+
 @dataclass
 class TableDecl:
     name: str = ""
@@ -85,6 +167,9 @@ class UnknownMetaLine:
 class MetaBlock:
     file_meta: list[KV] = field(default_factory=list)
     columns: list[ColumnDef] = field(default_factory=list)
+    charts: list[Chart] = field(default_factory=list)
+    notes: list[Note] = field(default_factory=list)
+    links: list[Link] = field(default_factory=list)
     aggregations: list[Aggregation] = field(default_factory=list)
     sql: list[SQLStatement] = field(default_factory=list)
     human_comments: list[str] = field(default_factory=list)

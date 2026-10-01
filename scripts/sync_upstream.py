@@ -27,13 +27,13 @@ FIXTURE_BASE = f"{UPSTREAM_BASE}/fixtures"
 UPSTREAM_REPO = "https://github.com/boligolov/excsv.git"
 
 GUIDE_FILES = [
-    "aggregations.md", "checksum.md", "columns.md", "data-section.md",
+    "aggregations.md", "charts.md", "checksum.md", "columns.md", "data-section.md",
     "file-metadata.md", "file-structure.md", "full-example.md", "header.md",
-    "introduction.md", "json.md", "license.md", "meta-lines.md", "pack.md",
+    "introduction.md", "json.md", "license.md", "meta-lines.md", "notes.md", "pack.md",
     "prior-art.md", "sql.md", "zip.md",
 ]
 
-IMPLEMENTATION_FILES = ["README.md"] + GUIDE_FILES
+IMPLEMENTATION_FILES = ["README.md", "error-handling.md"] + GUIDE_FILES
 
 
 def download(url: str, out: Path) -> None:
@@ -46,6 +46,7 @@ def download(url: str, out: Path) -> None:
 def sync_specs() -> None:
     print("Downloading spec/plan snapshots...")
     download(f"{UPSTREAM_BASE}/README.md", ROOT / "docs/downloaded/README.md")
+    download(f"{UPSTREAM_BASE}/CHANGELOG.md", ROOT / "docs/downloaded/CHANGELOG.md")
     download(f"{UPSTREAM_BASE}/docs/README.md", ROOT / "docs/downloaded/guide/README.md")
     download(f"{UPSTREAM_BASE}/plan/README.md", ROOT / "docs/downloaded/plan-README.md")
     download(f"{UPSTREAM_BASE}/plan/01-features.md", ROOT / "docs/downloaded/plan-01-features.md")
@@ -96,12 +97,24 @@ def sync_fixtures() -> None:
 
     print("Fetching zip/pack fixtures (generated upstream, or generating locally if needed)...")
     spec_dir = Path(tempfile.gettempdir()) / "excsv-spec-sync"
+    # core.autocrlf=false: fixtures are byte-exact (checksums, CRLF cases), so a
+    # Windows checkout must not rewrite line endings.
     if not (spec_dir / ".git").exists():
         if spec_dir.exists():
             shutil.rmtree(spec_dir)
         subprocess.run(
-            ["git", "clone", "--depth", "1", "--branch", "master", UPSTREAM_REPO, str(spec_dir)], check=True
+            ["git", "clone", "-c", "core.autocrlf=false", "--depth", "1", "--branch", "master",
+             UPSTREAM_REPO, str(spec_dir)],
+            check=True,
         )
+    else:
+        # A cached clone must track upstream, otherwise zip/pack fixtures go stale
+        # while plain fixtures (fetched over HTTP) are fresh.
+        git = ["git", "-C", str(spec_dir), "-c", "core.autocrlf=false"]
+        subprocess.run([*git, "config", "core.autocrlf", "false"], check=True)
+        subprocess.run([*git, "fetch", "--depth", "1", "origin", "master"], check=True)
+        subprocess.run([*git, "reset", "--hard", "FETCH_HEAD"], check=True)
+        subprocess.run([*git, "clean", "-fdx", "fixtures"], check=True)
 
     zip_gen = spec_dir / "fixtures/generate/make_zip_fixtures.py"
     pack_gen = spec_dir / "fixtures/generate/make_pack_fixtures.py"

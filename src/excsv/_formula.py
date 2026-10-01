@@ -22,8 +22,7 @@ length lower upper trim substr concat.
 from __future__ import annotations
 
 import math
-from dataclasses import dataclass, field
-from decimal import Decimal
+from dataclasses import dataclass
 from enum import Enum, auto
 from fractions import Fraction
 from typing import Optional
@@ -552,7 +551,7 @@ def _is_ident_start(c: str) -> bool:
 
 
 def _is_ident_part(c: str) -> bool:
-    return _is_ident_start(c) or c.isdigit()
+    return _is_ident_start(c) or (c.isascii() and c.isdigit())
 
 
 def lex_formula(s: str) -> list[Token]:

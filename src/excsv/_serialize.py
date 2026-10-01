@@ -1,4 +1,8 @@
-"""Document -> canonical text form, plus the small RowCount/MetaMap helpers."""
+"""Document -> canonical text form, plus the small RowCount/MetaMap helpers.
+
+Canonical order: header line, meta lines (#@, #column, #chart, #note/#link,
+#$, #%), then the data section.
+"""
 
 from __future__ import annotations
 
@@ -80,6 +84,12 @@ def serialize_canonical(doc: Document) -> bytes:
     for col in doc.meta.columns:
         attrs = format_column_attrs(col.attrs)
         lines.append("#column" + (" " + attrs if attrs else ""))
+    for c in doc.meta.charts:
+        lines.append(c.meta_line())
+    for n in doc.meta.notes:
+        lines.append(n.meta_line())
+    for link in doc.meta.links:
+        lines.append(link.meta_line())
     for s in doc.meta.sql:
         key = s.raw_key or (s.verb + (("-" + s.dialect) if s.dialect else ""))
         lines.append("#$" + key + ": " + s.payload)

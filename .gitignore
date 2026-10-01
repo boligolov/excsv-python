@@ -10,3 +10,5 @@ docs/downloaded
 test/fixtures
 .coverage
 htmlcov/
+.ruff_cache/
+.mypy_cache/
