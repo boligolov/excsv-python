@@ -37,9 +37,7 @@ def export_json(doc: Document, opts: JSONExportOptions | None = None) -> JSONExp
     meta = _json_meta(doc)
     if meta:
         root["meta"] = meta
-    _append_table_json(doc, root)
-
-    res = JSONExportResult()
+    res = JSONExportResult(dropped=_append_table_json(doc, root))
     if doc.meta.human_comments:
         res.dropped.append("## human comments (the spec's one intentional non-round-trip)")
     if doc.meta.unknown:
@@ -68,7 +66,8 @@ def pack_export_json(pack: Pack, opts: JSONExportOptions | None = None) -> JSONE
     for t in pack.tables:
         tdoc = t.document()
         entry: dict = {"name": t.decl.name}
-        _append_table_json(tdoc, entry)
+        for d in _append_table_json(tdoc, entry):
+            res.dropped.append(d + " in table " + t.decl.name)
         tables.append(entry)
         if tdoc.meta.human_comments:
             res.dropped.append("## human comments in table " + t.decl.name)
@@ -79,8 +78,13 @@ def pack_export_json(pack: Pack, opts: JSONExportOptions | None = None) -> JSONE
     return res
 
 
-def _append_table_json(doc: Document, into: dict) -> None:
-    cols = _json_columns(doc)
+def _append_table_json(doc: Document, into: dict) -> list[str]:
+    """Writes the members shared by a single-table document and one entry of a
+    pack's tables array; returns what had no JSON slot."""
+    from ._dialect import classify_checksum_field
+    from ._errors import ErrorKind
+
+    cols, dropped = _json_columns(doc)
     if cols:
         into["columns"] = cols
     charts = _json_charts(doc)
@@ -92,12 +96,18 @@ def _append_table_json(doc: Document, into: dict) -> None:
     links = _json_anchored(doc, [link.attrs for link in doc.meta.links], _LINK_JSON_KEYS)
     if links:
         into["links"] = links
-    sql = _json_sql(doc)
+    sql, sql_dropped = _json_sql(doc)
+    dropped += sql_dropped
     if sql:
         into["sql"] = sql
     cs = doc.header.fields.get("checksum", "")
     if cs:
-        into["checksum"] = cs
+        # The schema admits only <algo>:<lowercase hex>; a malformed value
+        # (checksum_malformed) has no JSON slot.
+        if classify_checksum_field(cs)[1] != ErrorKind.CHECKSUM_MALFORMED:
+            into["checksum"] = cs
+        else:
+            dropped.append("checksum=" + cs + ": malformed")
     into["rows"] = doc.declared_or_counted_rows()
     n, ok = parse_attr_int(doc.header.fields.get("columns"))
     if ok:
@@ -108,8 +118,9 @@ def _append_table_json(doc: Document, into: dict) -> None:
     ref = header_reference(doc.header)
     if ref:
         into["reference"] = ref
-        return
+        return dropped
     into["data"] = _json_data(doc)
+    return dropped
 
 
 def _json_layout(doc: Document) -> Profile:
@@ -126,7 +137,8 @@ def _json_dialect(doc: Document) -> dict:
         "encoding": doc.header.encoding or "UTF-8",
     }
     if doc.header.null:
-        csv["null"] = doc.header.null
+        # The schema types csv.null as an array of markers.
+        csv["null"] = [doc.header.null]
     return csv
 
 
@@ -141,32 +153,60 @@ def _json_meta(doc: Document) -> dict:
     return meta
 
 
-def _json_columns(doc: Document) -> list:
+def _json_columns(doc: Document) -> tuple[list, list[str]]:
+    """One object per physical column, in index order, then the virtual
+    computed columns (json.md § Column order). index comes from the header
+    cell a #column binds to, never its line order; a physical column no
+    #column describes becomes a bare {index, name} object so its header name
+    survives. A #column bound to no column is reported in dropped."""
+    from ._column import decl_phys_index
+    from ._warnings import physical_column_count
+
+    width = physical_column_count(doc)
+    bound = [-1] * width  # declaration index per physical column
+    virtual = []
+    dropped: list[str] = []
+    for i, col in enumerate(doc.meta.columns):
+        if is_virtual_column(col):
+            virtual.append(col)
+            continue
+        p = decl_phys_index(doc, i)
+        if p < 0 or p >= width:
+            dropped.append("#column " + col.attrs.get("name", "") + ": matches no column")
+            continue
+        if bound[p] >= 0:
+            dropped.append("#column " + doc.meta.columns[bound[p]].attrs.get("name", "") + ": duplicate, last one wins")
+        bound[p] = i
+    out = []
+    for p, i in enumerate(bound):
+        if i < 0:
+            entry: dict = {"index": p}
+            if doc.header.header_row and p < len(doc.data.header_row):
+                entry["name"] = doc.data.header_row[p]
+            out.append(entry)
+            continue
+        out.append(_json_column_entry(doc.meta.columns[i], p))
+    for col in virtual:
+        out.append(_json_column_entry(col, -1))
+    return out, dropped
+
+
+def _json_column_entry(col, index: int) -> dict:
+    """One #column; index < 0 means virtual (no index)."""
     from ._warnings import KNOWN_COLUMN_ATTRS
 
-    if not doc.meta.columns:
-        return []
-    out = []
-    phys = 0
-    for col in doc.meta.columns:
-        entry: dict = {}
-        if not is_virtual_column(col):
-            idx = phys
-            n, ok = parse_attr_int(col.attrs.get("index"))
-            if ok:
-                idx = n
-            entry["index"] = idx
-            phys += 1
-        col_type = col.attrs.get("type", "")
-        for k in COLUMN_ATTR_DISPLAY_ORDER:
-            if k == "index" or k not in col.attrs:
-                continue
-            entry[k] = _json_column_attr(k, col.attrs[k], col_type)
-        extra = sorted(k for k in col.attrs if k not in KNOWN_COLUMN_ATTRS)
-        for k in extra:
-            entry[k] = col.attrs[k]
-        out.append(entry)
-    return out
+    entry: dict = {}
+    if index >= 0:
+        entry["index"] = index
+    col_type = col.attrs.get("type", "")
+    for k in COLUMN_ATTR_DISPLAY_ORDER:
+        if k == "index" or k not in col.attrs:
+            continue
+        entry[k] = _json_column_attr(k, col.attrs[k], col_type)
+    extra = sorted(k for k in col.attrs if k not in KNOWN_COLUMN_ATTRS)
+    for k in extra:
+        entry[k] = col.attrs[k]
+    return entry
 
 
 def _json_column_attr(key: str, value: str, column_type: str):
@@ -260,16 +300,32 @@ def _json_anchored(doc: Document, lines: list[dict[str, str]], known: frozenset)
     return out
 
 
-def _json_sql(doc: Document) -> dict:
+def _json_sql(doc: Document) -> tuple[dict, list[str]]:
+    """Mirrors #$ddl / #$dql lines. The JSON sql object only has those two
+    verbs, so a line with any other verb (sql_unknown_verb) is reported."""
+    from ._sql import split_dialect_version
+
     sql: dict = {}
     by_verb: dict[str, list] = {}
     verbs: list[str] = []
+    dropped: list[str] = []
     for stmt in doc.meta.sql:
+        if stmt.verb not in ("ddl", "dql"):
+            dropped.append("#$" + stmt.verb + ": unknown SQL verb")
+            continue
         entry: dict = {}
+        header_dialect = doc.header.fields.get("sql-dialect", "").strip()
         if stmt.qualified and stmt.dialect:
             entry["dialect"] = stmt.dialect
             if stmt.version:
                 entry["version"] = stmt.version
+        elif header_dialect:
+            # JSON has no sql-dialect slot: the header default moves onto
+            # each unqualified statement, which keeps its meaning.
+            dialect, version = split_dialect_version(header_dialect.lower())
+            entry["dialect"] = dialect
+            if version:
+                entry["version"] = version
         entry["stmt"] = stmt.payload
         if stmt.verb not in by_verb:
             verbs.append(stmt.verb)
@@ -277,7 +333,7 @@ def _json_sql(doc: Document) -> dict:
         by_verb[stmt.verb].append(entry)
     for verb in verbs:
         sql[verb] = by_verb[verb]
-    return sql
+    return sql, dropped
 
 
 def _json_aggregates(doc: Document) -> dict:
@@ -306,8 +362,9 @@ def _json_agg_value(name: str, value: str, column_type: str):
 
 def _json_data(doc: Document) -> list:
     from ._agg import cell_at, column_type_at, is_null_cell
+    from ._warnings import physical_column_count
 
-    width = doc.column_width()
+    width = physical_column_count(doc)
     rows = []
     for row in doc.data.rows:
         n = width or len(row)

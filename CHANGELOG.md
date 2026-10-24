@@ -8,6 +8,25 @@ The version tracks the ExCSV spec: `MAJOR.MINOR` is the spec version the release
 
 ## [Unreleased]
 
+## [0.6.1] - 2026-10-24
+
+Implements ExCSV **v0.6** with the clarifications to `#column` binding and JSON reading (spec branch `json-column-binding`).
+
+### Added
+
+- **Reading the JSON form.** `parse_bytes` / `parse_file` accept a `.excsv.json` document: dispatch is on content (a top-level object with an `"excsv"` member), not on the file name. It is rendered as the equivalent canonical text and parsed as text, so it gets the same checks and warning codes. Problems that only exist in JSON (not valid JSON, a physical column without `index`, a repeated `index`, an unnamed column with `csv.header` true, a nested cell, a line break in a cell) fail with the new `json_malformed` code. Pack JSON (`tables`) is not read yet.
+- `ErrorKind.JSON_MALFORMED`.
+
+### Changed
+
+- **`#column` binds to header cells by name.** With `header=1`, a `#column` describes the header cell equal to its `title=` (else `name=`); the order of `#column` lines no longer matters. `column_name_header_mismatch` / `column_title_header_mismatch` now mean that no header cell carries the name. Declaration order is used only when there is no header row (pack tables, header-only stubs). `column_index`, `check_schema`, notes, links and warnings all use the binding.
+
+### Fixed
+
+- JSON export is now lossless: `columns` has one object per physical column, by binding, with a bare `{index, name}` object for a column no `#column` describes (its header name used to be lost); `data` rows are as wide as the physical table.
+- JSON export validates against `schema/excsv.schema.json`: `csv.null` is an array, the header `sql-dialect` moves onto unqualified statements (split into `dialect` and `version`), and a statement with an unknown verb or a malformed `checksum=` is reported in `dropped` instead of written.
+- The serializer quotes a first field that starts with `#`, so a data row is never read back as a meta line.
+
 ## [0.6.0] - 2026-10-01
 
 Implements ExCSV **v0.6** ([boligolov/excsv@93d4625](https://github.com/boligolov/excsv/commit/93d4625)).

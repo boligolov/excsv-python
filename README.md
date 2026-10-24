@@ -117,6 +117,8 @@ for msg in notices:                               # #$ SQL and #chart-vega paylo
 ```python
 json_result = doc.export_json()          # .excsv.json, a lossless bijection
                                           # except `##` human comments (see .dropped)
+back = excsv.parse_bytes(json_result.data, excsv.strict_options())   # the JSON form reads back
+text = back.doc.serialize_canonical()    # ... and converts to the text form
 csvw_result = doc.export_csvw(excsv.CSVWExportOptions(url="data.csv"))
 ```
 
@@ -208,7 +210,7 @@ See [CONTRIBUTING.md](CONTRIBUTING.md) for the spec-update workflow and release 
 | Plain `.excsv` | parse, convert, data, schema, sidecar | Done |
 | Row `.excsv.zip` | read/write, password (via `pyzipper`) | Done |
 | Pack `.excsv.pack.zip` | multi-table, sectioned columns, FKs | Done |
-| JSON / CSVW export | `.excsv.json` bijection, CSVW sidecar | Done |
+| JSON form / CSVW | `.excsv.json` read and write (lossless), CSVW sidecar export | Done |
 | Computed columns (v0.5) | `formula=`/`materialized=`, materialize/dematerialize | Done |
 | Charts | `#chart` / `#chart-vega`, checks, CRUD, JSON mirror | Done |
 | Notes and links (v0.6) | `#note`, `link=`, `#link`, `key=` anchors, scheme check | Done |

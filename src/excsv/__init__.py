@@ -50,7 +50,7 @@ The format itself is specified at https://github.com/boligolov/excsv.
 
 # MAJOR.MINOR is the ExCSV spec version implemented; PATCH counts library
 # releases against that spec version.
-__version__ = "0.6.0"
+__version__ = "0.6.1"
 
 from . import zip  # noqa: F401  (submodule import binds excsv.zip)
 
