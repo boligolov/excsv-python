@@ -11,7 +11,7 @@ from ._agg import (
     is_string_column_type,
 )
 from ._checksum import verify_checksum
-from ._column import column_count_from_schema, effective_column_count, is_virtual_column
+from ._column import column_count_from_schema, decl_phys_index_of, effective_column_count, is_virtual_column
 from ._dialect import classify_checksum_field
 from ._document import CURRENT_VERSION, ColumnDef, Document, ParseOptions, ParseResult
 from ._errors import ErrorKind, ParseError, fail, is_fail_kind, new_issue
@@ -223,28 +223,7 @@ def physical_width(doc: Document) -> int:
 
 
 def column_index_for_def(doc: Document, col: ColumnDef) -> int:
-    v = col.attrs.get("index")
-    if v is not None:
-        try:
-            return int(v)
-        except ValueError:
-            return -1
-    name = col.attrs.get("name", "")
-    if not name:
-        return -1
-    for i, cell in enumerate(doc.data.header_row):
-        if cell == name or cell == col.attrs.get("title"):
-            return i
-    for i, c in enumerate(doc.meta.columns):
-        if c.attrs.get("name") == name:
-            v2 = c.attrs.get("index")
-            if v2 is not None:
-                try:
-                    return int(v2)
-                except ValueError:
-                    pass
-            return i
-    return -1
+    return decl_phys_index_of(doc, col)
 
 
 def append_extsv_warning(res: ParseResult, path: str) -> None:

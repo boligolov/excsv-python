@@ -58,22 +58,58 @@ def column_width(doc: Document) -> int:
     return 0
 
 
+def binds_by_name(doc: Document) -> bool:
+    """#column lines bind to header cells by name: header=1 with a header row
+    to bind against. Without one (a pack table's _header.excsv, a header-only
+    stub) declaration order is all there is."""
+    return bool(doc.header.header_row and doc.data.header_row)
+
+
+def header_cell_of(col: ColumnDef) -> str:
+    """The header cell a #column binds to: title= when set, else name=."""
+    if "title" in col.attrs:
+        return col.attrs["title"]
+    return col.attrs.get("name", "")
+
+
+def decl_phys_index(doc: Document, i: int) -> int:
+    """Maps the non-virtual #column doc.meta.columns[i] to its physical
+    position, or -1. With a header row it is the first header cell equal to
+    the column's title=/name=, never the line's place in the meta block.
+    Otherwise index= when set, else declaration order over non-virtual
+    columns."""
+    col = doc.meta.columns[i]
+    if is_virtual_column(col):
+        return -1
+    if binds_by_name(doc):
+        try:
+            return doc.data.header_row.index(header_cell_of(col))
+        except ValueError:
+            return -1
+    v = col.attrs.get("index")
+    if v is not None:
+        try:
+            return int(v)
+        except ValueError:
+            return -1
+    return sum(1 for c in doc.meta.columns[:i] if not is_virtual_column(c))
+
+
+def decl_phys_index_of(doc: Document, col: ColumnDef) -> int:
+    for i, c in enumerate(doc.meta.columns):
+        if c is col:
+            return decl_phys_index(doc, i)
+    return -1
+
+
 def column_def_at(doc: Document, col: int) -> tuple[ColumnDef | None, bool]:
-    phys = 0
-    for c in doc.meta.columns:
-        if is_virtual_column(c):
-            continue
-        idx = phys
-        v = c.attrs.get("index")
-        if v is not None:
-            try:
-                idx = int(v)
-            except ValueError:
-                pass
-        if idx == col:
-            return c, True
-        phys += 1
-    return None, False
+    """The #column bound to physical column col. Two lines bound to the same
+    column are a duplicate_column; the last one wins."""
+    found = None
+    for i, c in enumerate(doc.meta.columns):
+        if decl_phys_index(doc, i) == col:
+            found = c
+    return found, found is not None
 
 
 def column_by_name(doc: Document, name: str) -> tuple[int, ColumnDef | None, bool]:
@@ -101,21 +137,15 @@ def column_index(doc: Document, ref: str) -> int:
     for i, cell in enumerate(doc.data.header_row):
         if cell == ref:
             return i
-    phys = 0
-    for col in doc.meta.columns:
-        virtual = is_virtual_column(col)
-        if col.attrs.get("name") == ref:
-            if virtual:
-                raise ValueError(f"column {ref} is virtual (formula=), has no physical index")
-            v = col.attrs.get("index")
-            if v is not None:
-                try:
-                    return int(v)
-                except ValueError:
-                    pass
-            return phys
-        if not virtual:
-            phys += 1
+    for i, col in enumerate(doc.meta.columns):
+        if col.attrs.get("name") != ref:
+            continue
+        if is_virtual_column(col):
+            raise ValueError(f"column {ref} is virtual (formula=), has no physical index")
+        n = decl_phys_index(doc, i)
+        if n >= 0:
+            return n
+        raise ValueError(f"column {ref} matches no header cell")
     raise ValueError(f"unknown column: {ref}")
 
 
@@ -213,8 +243,7 @@ def validate_columns(res, header_width: int) -> None:
     Go's parse.go validateColumns.
     """
     doc = res.doc
-    phys = 0
-    for col in doc.meta.columns:
+    for i, col in enumerate(doc.meta.columns):
         if col.attrs.get("formula"):
             if not doc.header.header_row:
                 raise fail(ErrorKind.FORMULA_REQUIRES_HEADER, col.line, "formula= requires header=1")
@@ -222,19 +251,17 @@ def validate_columns(res, header_width: int) -> None:
                 raise fail(ErrorKind.FORMULA_INDEX_FORBIDDEN, col.line, "formula= column must not carry index=")
         if is_virtual_column(col):
             continue
-        i = phys
-        phys += 1
         if doc.header.header_row:
             name = col.attrs.get("name", "")
             if not name:
                 raise fail(ErrorKind.COLUMN_MISSING_NAME, col.line, "missing name= when header=1")
-            title = col.attrs.get("title")
-            if header_width > 0 and len(doc.data.header_row) > i:
-                cell = doc.data.header_row[i]
-                if title is not None and cell != title:
-                    res.warn(ErrorKind.COLUMN_TITLE_HEADER_MISMATCH, col.line, "title does not match header row")
-                if title is None and cell != name:
-                    res.warn(ErrorKind.COLUMN_NAME_HEADER_MISMATCH, col.line, "name does not match header row")
+            # Binding is by name: the line's place in the meta block is
+            # irrelevant, only whether some header cell carries its name.
+            if header_width > 0 and binds_by_name(doc) and decl_phys_index(doc, i) < 0:
+                if "title" in col.attrs:
+                    res.warn(ErrorKind.COLUMN_TITLE_HEADER_MISMATCH, col.line, "no header cell matches title")
+                else:
+                    res.warn(ErrorKind.COLUMN_NAME_HEADER_MISMATCH, col.line, "no header cell matches name")
         elif "index" not in col.attrs:
             raise fail(ErrorKind.COLUMN_MISSING_INDEX, col.line, "missing index= when header=0")
 
