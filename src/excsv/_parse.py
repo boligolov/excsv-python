@@ -41,6 +41,10 @@ def parse_bytes(data: bytes, opts: ParseOptions) -> ParseResult:
     from ._kv import valid_utf8
 
     data = strip_utf8_bom(data)
+    from ._import_json import is_json_form, json_to_text
+
+    if is_json_form(data):
+        data = json_to_text(data)
 
     enc = "UTF-8"
     first_line = first_line_bytes(data)

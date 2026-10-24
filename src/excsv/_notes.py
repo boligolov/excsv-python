@@ -10,7 +10,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 
 from ._agg import cell_at, is_null_cell
-from ._column import is_virtual_column
+from ._column import decl_phys_index_of, is_virtual_column
 from ._document import ColumnDef, Document, Link, Note, NoteTarget
 from ._errors import ErrorKind, Issue, ParseError, fail, new_issue
 from ._kv import split_header_pairs
@@ -195,30 +195,9 @@ class _AnchorResolver:
         self.id_why = "the table has no id column (role=id or unique=1)"
 
     def phys_index_of_decl(self, col: ColumnDef) -> int:
-        """Maps a non-virtual #column to its physical position: index= when set,
-        else (header=1) its header cell, else declaration order over non-virtual
-        columns."""
-        if "index" in col.attrs:
-            try:
-                return int(col.attrs["index"])
-            except ValueError:
-                return -1
-        name = col.attrs.get("name", "")
-        header_row = self.doc.data.header_row
-        if self.doc.header.header_row and name:
-            if name in header_row:
-                return header_row.index(name)
-            title = col.attrs.get("title", "")
-            if title and title in header_row:
-                return header_row.index(title)
-        phys = 0
-        for c in self.doc.meta.columns:
-            if is_virtual_column(c):
-                continue
-            if c is col:
-                return phys
-            phys += 1
-        return -1
+        """Maps a non-virtual #column to its physical position (see
+        decl_phys_index)."""
+        return decl_phys_index_of(self.doc, col)
 
     def column(self, ref: str) -> _ColRef | None:
         """Resolves a col= value or a link= placeholder: a name with header=1;

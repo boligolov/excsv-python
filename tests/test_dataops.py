@@ -45,6 +45,17 @@ def test_check_schema_ok():
     assert doc.check_schema() == []
 
 
+def test_check_schema_binds_by_name():
+    # #column lines bind to header cells by name, whatever their order.
+    doc = parse_doc(
+        "#!excsv version=0.6 rows=1\n#column name=amount type=decimal\n#column name=id type=int\n"
+        "id,note,amount\n1,hello,x\n"
+    )
+    issues = doc.check_schema()
+    assert len(issues) == 1 and "amount" in issues[0].message
+    assert doc.column_index("amount") == 2
+
+
 def test_upsert_column():
     doc = parse_doc("#!excsv version=0.2\nid,amount\n1,10\n")
     doc.upsert_column("amount", {"type": "decimal", "unit": "USD"})

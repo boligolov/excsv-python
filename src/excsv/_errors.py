@@ -81,6 +81,9 @@ class ErrorKind(str, Enum):
     SIDECAR_CHECKSUM_MISMATCH = "sidecar_checksum_mismatch"
     REFERENCE_ON_INLINE = "reference_on_inline"
 
+    # JSON form (.excsv.json), read through its text rendering.
+    JSON_MALFORMED = "json_malformed"
+
     # Computed columns (formula=/materialized=), added in v0.5.
     FORMULA_REFERENCES_COMPUTED = "formula_references_computed"
     FORMULA_UNKNOWN_REFERENCE = "formula_unknown_reference"

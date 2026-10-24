@@ -104,10 +104,12 @@ def serialize_canonical(doc: Document) -> bytes:
     from ._document import Profile
 
     if layout not in ("pack", "columnar") and doc.source.profile != Profile.SIDECAR and header_reference(doc.header) == "":
+        from ._import_json import join_row
+
         if doc.data.has_header_row:
-            lines.append(join_csv_fields(doc.data.header_row, d))
+            lines.append(join_row(doc.data.header_row, d))
         for row in doc.data.rows:
-            lines.append(join_csv_fields(row, d))
+            lines.append(join_row(row, d))
     out = "\n".join(lines)
     if lines:
         out += "\n"
