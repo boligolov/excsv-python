@@ -34,7 +34,7 @@ test = ["pytest>=7", "pyyaml>=6"]
 dev = ["excsv[test,crypto]", "build>=1", "twine>=5", "ruff>=0.5"]
 
 [project.urls]
-Homepage = "https://excsv.org"
+Homepage = "https://excsv.dev"
 Specification = "https://github.com/boligolov/excsv"
 Repository = "https://github.com/boligolov/excsv-python"
 Issues = "https://github.com/boligolov/excsv-python/issues"

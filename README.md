@@ -5,7 +5,7 @@
 [![Python](https://img.shields.io/badge/python-3.10%2B-blue)](pyproject.toml)
 [![License: MIT](https://img.shields.io/badge/license-MIT-green)](LICENSE)
 
-**Website:** [excsv.org](https://excsv.org)
+**Website:** [excsv.dev](https://excsv.dev)
 
 Python reference implementation of the **excsv** library for [ExCSV](https://github.com/boligolov/excsv) v0.6 (Extended CSV) -- CSV that describes itself. A conforming document is still plain, delimiter-separated data; schema, units, summary statistics, SQL DDL/DQL, chart suggestions, notes, links, and an integrity checksum ride along as `#` comment lines that any existing CSV reader already skips.
 
