@@ -56,7 +56,7 @@ def filter_rf(manifest: dict) -> list[dict]:
         if fx.get("superseded_by"):
             continue
         fid = fx["id"]
-        if fid.startswith(("plain/", "zip/", "pack/")):
+        if fid.startswith(("plain/", "zip/", "pack/", "json/")):
             out.append(fx)
     return out
 

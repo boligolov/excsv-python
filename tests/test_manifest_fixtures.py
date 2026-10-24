@@ -56,3 +56,8 @@ def test_manifest_fixture(fixture_id: str) -> None:
         err = e
 
     assert_expectation(fx, res, err)
+    if fx.get("equivalent_to"):
+        # A JSON-form fixture reads as the same document as its plain twin
+        # (json.md § Reading): their JSON exports are identical.
+        twin = excsv.parse_file(str(root_dir(MANIFEST_PATH) / fx["equivalent_to"]), opts)
+        assert res.doc.export_json().data == twin.doc.export_json().data, f"not equivalent to {fx['equivalent_to']}"
