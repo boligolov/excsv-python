@@ -173,8 +173,8 @@ class _Writer:
                 raise _fail(f"columns[{i}] is not an object")
             virtual = obj.get("formula") is not None and obj.get("materialized") is not True
             if virtual:
-                if "index" in obj:
-                    raise _fail(f"columns[{i}]: a virtual computed column has no index")
+                # An index on a formula column stays on its #column line, where
+                # the text check reports formula_index_forbidden.
                 virt.append(_Column(obj, virtual=True))
                 continue
             if "index" not in obj:
@@ -207,7 +207,7 @@ class _Writer:
     def column_line(self, c: _Column) -> str:
         """One column object as a #column line, or "" for a bare object (index
         and name only), which carries no schema."""
-        attrs = {k: _column_attr_text(k, v) for k, v in c.attrs.items() if k != "index"}
+        attrs = {k: _column_attr_text(k, v) for k, v in c.attrs.items() if k != "index" or c.virtual}
         if not attrs or (self.header and len(attrs) == 1 and attrs.get("name")):
             return ""
         if not self.header and not c.virtual:
