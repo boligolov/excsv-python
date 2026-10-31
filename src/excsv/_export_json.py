@@ -247,9 +247,11 @@ def _json_chart_attr(key: str, value: str):
         if len(refs) > 1:
             return refs
     elif key == "bin":
-        # bin=1 switches binning on; any other count is the bin count.
+        # bin=0 is no binning, bin=1 switches it on; any other count is the bin count.
         if value == "1":
             return True
+        if value == "0":
+            return False
         n, ok = parse_attr_int(value)
         if ok:
             return n

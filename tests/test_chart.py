@@ -98,6 +98,18 @@ def test_add_and_remove_chart():
     assert not doc.remove_chart("c")
 
 
+@pytest.mark.parametrize("text, mirrored", [("0", False), ("1", True), ("20", 20)])
+def test_chart_bin_mirrors_into_json_and_back(text, mirrored):
+    """bin=0 is no binning, bin=1 the default count, never one bin; the schema's bin is a boolean or
+    an integer of at least 1, so 0 has to be false."""
+    doc = parse(CHART_SCHEMA + f"#chart type=bar name=hist bin={text} x=amount y=count()\n" + CHART_DATA).doc
+    data = doc.export_json().data
+    got = json.loads(data)["charts"][0]["bin"]
+    assert got == mirrored and type(got) is type(mirrored)
+    back = excsv.parse_bytes(data, excsv.strict_options()).doc
+    assert back.chart_by_name("hist").attrs["bin"] == text
+
+
 def test_chart_json_mirror():
     doc = parse(CHART_SCHEMA
                 + "#chart type=arc name=donut theta=amount color=category hole=0.5 stack=1 tooltip=category,amount\n"
