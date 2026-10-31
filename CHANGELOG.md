@@ -8,6 +8,10 @@ The version tracks the ExCSV spec: `MAJOR.MINOR` is the spec version the release
 
 ## [Unreleased]
 
+### Fixed
+
+- JSON export writes `bin=0` as `false`, as the spec's `#chart` modifier values define it (no binning); the integer `0` did not validate against `schema/excsv.schema.json`, whose `bin` is a boolean or an integer of at least 1.
+
 ## [0.6.1] - 2026-10-24
 
 Implements ExCSV **v0.6** with the clarifications to `#column` binding and JSON reading (spec branch `json-column-binding`).
